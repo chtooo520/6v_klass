@@ -85,7 +85,7 @@ let unsub=null;
 function lsGet(k,d){try{return JSON.parse(localStorage.getItem(k))||d}catch(e){return d}}
 function lsSet(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
 const FBC={apiKey:"AIzaSyA1nrHwtnahLaU6FEINNIKM03QYwKhThYo",authDomain:"tusa-pay.firebaseapp.com",databaseURL:"https://tusa-pay-default-rtdb.firebaseio.com",projectId:"tusa-pay",storageBucket:"tusa-pay.firebasestorage.app",messagingSenderId:"308586374263",appId:"1:308586374263:web:addba1e4ab09b54fd59272"};
-let FB=null,subRef=null;
+let FB=null,subRef=null,subRef2=null;S.rec={};
 function dbs(){const e=$("#dbs");if(!e)return;let c,t;
   if(!FB){c="bad";t="Firebase не загружен — данные только на этом устройстве"}
   else if(S.err){c="bad";t="Нет доступа к базе — проверьте правила Realtime Database"}
@@ -108,21 +108,24 @@ async function init(){
 function sub(){
   if(subRef){subRef.off();subRef=null}
   if(!FB)return;const m=S.month;
+  if(!subRef2){const y=new Date();y.setDate(y.getDate()-1);subRef2=FB.ref(R+"absent").orderByKey().startAt(ymd(y));
+    subRef2.on("value",q=>{S.rec={};q.forEach(c=>{S.rec[c.key]=c.val()});render(1)},er)}
   subRef=FB.ref(R+"absent").orderByKey().startAt(m+"-01").endAt(m+"-31_\uf8ff");
   subRef.on("value",q=>{S.all={};q.forEach(c=>{S.all[c.key]=c.val()});const n=pend().length;
     if(S.lastP>=0&&n>S.lastP&&(S.admin||S.teacher)&&S.set.snd)beep();S.lastP=n;S.err=0;dbs();render(1)},er);
 }
 const inMonth=()=>Object.values(S.all).filter(x=>x.date.slice(0,7)===S.month);
 const dayE=()=>Object.values(S.all).filter(x=>x.date===S.date);
-const pend=()=>inMonth().filter(x=>x.status==="pending");
+const getE=k=>S.all[k]||S.rec[k];
+const pend=()=>Object.values(Object.assign({},S.rec,S.all)).filter(x=>x.status==="pending").sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:sname(a.sid).localeCompare(sname(b.sid),"ru"));
 const okE=()=>dayE().filter(x=>x.status!=="pending");
 function beep(){try{const a=new (window.AudioContext||window.webkitAudioContext)(),o=a.createOscillator();o.connect(a.destination);o.frequency.value=880;o.start();o.stop(a.currentTime+.25)}catch(e){}}
 async function put(sid,date,o){
-  const k=date+"_"+sid;S.all[k]=Object.assign({sid,date},o);
+  const k=date+"_"+sid;S.all[k]=Object.assign({sid,date},o);S.rec[k]=S.all[k];
   if(FB){try{await FB.ref(R+"absent/"+k).set(S.all[k])}catch(e){er(e);delete S.all[k]}}else lsSet("absall",S.all);
 }
 async function del(sid,date){
-  const k=date+"_"+sid;delete S.all[k];
+  const k=date+"_"+sid;delete S.all[k];delete S.rec[k];
   if(FB){try{await FB.ref(R+"absent/"+k).remove()}catch(e){er(e)}}else lsSet("absall",S.all);
 }
 async function saveSt(){if(FB){try{await FB.ref(R+"students/list").set(S.students)}catch(e){er(e)}}else lsSet("students",S.students)}
@@ -164,15 +167,15 @@ function render(keep){
     `<div class="card"><h2>Я не приду</h2><div class="mut">Сегодня: ${fd(t)}</div>
     <select id="who"><option value="">— выберите свою фамилию —</option>${L.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join("")}</select>
     ${rsel("why")}<textarea id="oth" placeholder="Напишите свою причину или уточнение (необязательно)"></textarea>
-    <div class="mut">Если болеете несколько дней — «по» (необязательно):</div><input type="date" id="to" min="${t}">
+    <div class="mut">На какое число (по умолчанию сегодня):</div><input type="date" id="from" value="${t}" min="${t}"><div class="mut">Если болеете несколько дней — «по» (необязательно):</div><input type="date" id="to" min="${t}">
     <p class="red">Отправляем только за себя! За других отправлять нельзя.</p>
     <button onclick="sendMe()" style="width:100%">Отправить</button><p id="msg" class="ok">${esc(S.msg)}</p></div>`);
   }else if(v==="admin"||v==="teacher"){
     const T=v==="teacher";if(!(T?S.teacher:S.admin))h=loginBox(T?"Вход для классного руководителя":"Вход для старосты");else{
       const E={};dayE().forEach(e=>E[e.sid]=e);const cnt=dayE().filter(e=>e.type!=="late").length;const P=pend();
       h=head(T?"Классный руководитель":"Панель старосты")+(T?'<div class="greet">Здравствуйте, Марина Владимировна!</div>':"")+dateBox()+
-      (P.length?`<div class="card"><h2>Новые сообщения: ${P.length}</h2>${P.map(e=>`<div class="st"><span class="nm">${esc(sname(e.sid))}<br><span class="mut">${fd(e.date)} · ${esc(e.reason)}</span></span><button onclick="acc('${e.sid}','${e.date}')">✓</button> <button class="r" onclick="rej('${e.sid}','${e.date}')">✕</button></div>`).join("")}</div>`:"")+
-      `<div class="card"><h2>Отсутствуют: ${cnt}</h2><div class="mut">Правый тумблер — «нет», левый — «опоздал»</div>
+      (P.length?`<div class="card"><div class="row"><h2 style="margin:0">Новые сообщения: ${P.length}</h2>${P.length>1?`<button onclick="accAll()">✓ Принять все</button>`:""}</div>${P.map(e=>`<div class="st"><span class="nm">${esc(sname(e.sid))}<br><span class="mut">${fd(e.date)} · ${esc(e.reason)}</span></span><button onclick="acc('${e.sid}','${e.date}')">✓</button> <button class="r" onclick="rej('${e.sid}','${e.date}')">✕</button></div>`).join("")}</div>`:"")+
+      `<div class="card"><div class="row"><h2 style="margin:0">Отсутствуют: ${cnt}</h2><button class="r" onclick="clearDay()">🗑 Очистить список</button></div><div class="mut">Правый тумблер — «нет», левый — «опоздал»</div>
       ${L.map((s,i)=>{const e=E[s.id],late=e&&e.type==="late",ab=e&&!late;return `<div class="st"><span class="n">${i+1}</span><span class="nm">${esc(s.name)}${e&&e.status==="pending"?" ⏳":""}</span>
       <label class="sw l"><small>опоздал</small><input type="checkbox" ${late?"checked":""} onchange="tg('${s.id}',this.checked,'late')"><i></i></label>
       <label class="sw"><small>нет</small><input type="checkbox" ${ab?"checked":""} onchange="tg('${s.id}',this.checked,'abs')"><i></i></label>
@@ -206,12 +209,14 @@ function render(keep){
 async function sendMe(){
   const id=$("#who").value,m=$("#msg");if(!id){m.className="red";m.textContent="Выберите фамилию";return}
   let r=$("#why").value,o=$("#oth").value.trim();if(o)r+=": "+o;
-  const to=$("#to").value,d=new Date(),end=to?new Date(to+"T00:00:00"):new Date();let n=0;
+  const fr=$("#from").value||today(),to=$("#to").value,d=new Date(fr+"T00:00:00"),end=new Date((to&&to>=fr?to:fr)+"T00:00:00");let n=0;
   for(let i=0;i<14&&ymd(d)<=ymd(end);i++){const w=d.getDay();if(i===0||(w&&w<6)){await put(id,ymd(d),{reason:r,by:"student",type:"abs",status:"pending"});n++}d.setDate(d.getDate()+1)}
   S.msg="Отправлено ✓ ("+n+" дн.) Староста подтвердит сообщение.";render();
 }
 function tg(id,on,type){if(on)put(id,S.date,{reason:type==="late"?"Опоздал":"Болезнь",by:"admin",type,status:"ok"}).then(()=>render());else del(id,S.date).then(()=>render())}
-function acc(id,d){const e=S.all[d+"_"+id];put(id,d,Object.assign({},e,{status:"ok"})).then(()=>render())}
+function acc(id,d){const e=getE(d+"_"+id);put(id,d,Object.assign({},e,{status:"ok"})).then(()=>render())}
+async function accAll(){for(const e of pend())await put(e.sid,e.date,Object.assign({},e,{status:"ok"}));render()}
+async function clearDay(){const l=dayE();if(!l.length){alert("Список за этот день уже пуст");return}if(!confirm("Очистить список за "+fd(S.date)+"? Будет удалено записей: "+l.length))return;for(const e of l)await del(e.sid,e.date);render()}
 function rej(id,d){del(id,d).then(()=>render())}
 function rc(id,r){const e=dayE().find(x=>x.sid===id);if(e){const n=note(e);put(id,S.date,Object.assign({},e,{reason:r+(n?": "+n:"")}))}}
 function nc(id,v){const e=dayE().find(x=>x.sid===id);if(e){v=v.trim();put(id,S.date,Object.assign({},e,{reason:cat(e)+(v?": "+v:"")}))}}
